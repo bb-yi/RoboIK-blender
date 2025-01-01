@@ -12,8 +12,8 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 import bpy
 import numpy as np
-from ikpy.chain import Chain
-from ikpy.link import OriginLink, URDFLink
+import sys
+import subprocess
 from mathutils import Vector
 import time
 
@@ -27,6 +27,112 @@ bl_info = {
     "warning": "",
     "category": "Generic",
 }
+# ----------------------------插件配置面板-------------------------------
+
+
+class RoboIKToolPrefs(bpy.types.AddonPreferences):
+
+    bl_idname = __name__
+
+    # 定义插件可自定义的属性
+    is_install = False
+
+    try:
+        # import PIL
+        from ikpy.chain import Chain
+        from ikpy.link import OriginLink, URDFLink
+
+        is_install = True
+    #        print("is_install")
+
+    except:
+        is_install = False
+
+    # 绘制插件配置UI面板
+    def draw(self, context):
+        layout = self.layout
+
+        col = layout.column()
+        col.scale_y = 2
+        col.enabled = not self.is_install
+        col.label(text="您还未安装插件依赖：IKPY")
+        col.operator(InstallIKPYOperator.bl_idname, icon="IMPORT")
+
+        col = layout.column()
+        col.scale_y = 2
+        col.enabled = self.is_install
+        col.label(text="不再使用并且要卸载IKPY ？")
+        col.operator(UnInstallIKPYOperator.bl_idname, icon="EXPORT")
+
+
+# ----------------------------安装工具-------------------------------
+
+
+# 定义安装 IKPY 的操作符类
+class InstallIKPYOperator(bpy.types.Operator):
+    """
+    操作员在Blender的Python环境中安装IKPY
+    """
+
+    bl_idname = "addon.install_ikpy"
+    bl_label = "安装 IKPY库（需要网络）"
+
+    def execute(self, context):
+        # 获取Blender自带Python解释器的路径
+        blender_python_path = sys.executable
+        try:
+            # 构建用于安装Pyaudio的pip命令
+            install_command = [blender_python_path, "-m", "pip", "install", "ikpy"]
+            # 执行命令，捕获输出和错误信息
+            process = subprocess.Popen(install_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = process.communicate()
+            if process.returncode == 0:
+                self.report({"INFO"}, "IKPY安装成功！")
+                RoboIKToolPrefs.is_install = True
+            else:
+                error_message = stderr.decode("utf-8") if stderr else "Unknown error"
+                self.report({"ERROR"}, f"缺少IKPY。请在插件面板上安装 IKPY。")
+            return {"FINISHED"}
+        except Exception as e:
+            self.report({"ERROR"}, f"安装过程中出错: {str(e)}")
+            return {"CANCELLED"}
+
+
+# 定义卸载 IKPY 的操作符类
+class UnInstallIKPYOperator(bpy.types.Operator):
+    """
+    操作员从Blender的Python环境中卸载IKPY
+    """
+
+    bl_idname = "addon.uninstall_ikpy"
+    bl_label = "卸载 IKPY"
+
+    def execute(self, context):
+        try:
+            import ikpy
+
+        except:
+            self.report({"ERROR"}, f"未安装 IKPY。")
+            return {"CANCELLED"}
+        # 获取Blender自带Python解释器的路径
+        blender_python_path = sys.executable
+        try:
+            # 构建用于卸载IKPY的pip命令
+            uninstall_command = [blender_python_path, "-m", "pip", "uninstall", "ikpy", "-y"]
+            # 执行命令，捕获输出和错误信息
+            process = subprocess.Popen(uninstall_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = process.communicate()
+            if process.returncode == 0:
+                self.report({"INFO"}, "IKPY 卸载成功！")
+                RoboIKToolPrefs.is_install = False
+            else:
+                error_message = stderr.decode("utf-8") if stderr else "Unknown error"
+                self.report({"ERROR"}, f"卸载 IKPY 失败。错误: {error_message}")
+            return {"FINISHED"}
+        except Exception as e:
+            self.report({"ERROR"}, f"卸载过程中出错: {str(e)}")
+
+            return {"CANCELLED"}
 
 
 # Define the operator class for the button
@@ -47,6 +153,18 @@ class TestOperator(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class OpenAddonPreferencesOperator(bpy.types.Operator):
+    """打开插件的安装配置界面"""
+
+    bl_idname = "addon.open_preferences"
+    bl_label = "打开插件配置界面"
+
+    def execute(self, context):
+        # 通过 bpy.ops.preferences.addon_show 打开插件的安装配置界面
+        bpy.ops.preferences.addon_show(module=__name__)
+        return {"FINISHED"}
+
+
 # Define the panel class
 class Roboik_PT_MainPanel(bpy.types.Panel):
     """Creates a Panel in the 3D Viewport"""
@@ -60,11 +178,13 @@ class Roboik_PT_MainPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         # Create a row in the panel
-        row = layout.row()
-        # Add a button to the row, which uses the operator
-        row.operator("view3d.test_operator", text="Test Operator", icon="ITALIC")
-        row2 = layout.row()
-        row2.prop(context.scene.roboik_properties, "test", text="Test Property")
+        if not RoboIKToolPrefs.is_install:
+            row = layout.row()
+            row.alert = not RoboIKToolPrefs.is_install
+            row.operator("addon.open_preferences", text="未安装IKPY库,打开配置面板安装", icon="ERROR")
+        # row.operator("view3d.test_operator", text="Test Operator", icon="ITALIC")
+        # row2 = layout.row()
+        # row2.prop(context.scene.roboik_properties, "test", text="Test Property")
         # 显示列表
 
 
@@ -75,6 +195,11 @@ class CHAIN_PT_SubPanel(bpy.types.Panel):
     bl_region_type = "UI"  # 与主面板保持一致
     bl_category = "RoboIK"  # 与主面板保持一致
     bl_parent_id = "ROBOIK_PT_MainPanel"  # 父面板的 ID，关联到主面板
+
+    @classmethod
+    def poll(cls, context):
+        bool1 = RoboIKToolPrefs.is_install
+        return bool1
 
     def draw(self, context):
         scene = context.scene
@@ -169,9 +294,16 @@ class MoveChainItemDown(bpy.types.Operator):
 
 
 def update_bone_list(self, context):
-    arma = context.scene.roboik_properties.chain_item_collection[context.scene.roboik_properties.chain_item_collection_active_index].armature
-    if arma is not None:
-        return [(bone.name, bone.name, "") for bone in arma.bones]
+    # 获取当前的 ChainBoneItem 对象
+    chain_bone_item = self
+
+    # 获取该 ChainBoneItem 所在的 ChainItem
+    chain_item = context.scene.roboik_properties.chain_item_collection.get(self.id_data.name)
+
+    if chain_item and chain_item.armature:  # 确保 armature 存在
+        arma = chain_item.armature
+        # 获取 armature 中所有骨骼的名称，并返回作为 EnumProperty 的项
+        return [(bone.name, bone.name, "") for bone in arma.data.bones]
     else:
         return []
 
@@ -179,8 +311,9 @@ def update_bone_list(self, context):
 class ChainBoneItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty(name="Item Name")
     value: bpy.props.IntProperty(name="Value")
-    bone_name: bpy.props.EnumProperty(name="", items=update_bone_list, description="Select a bone from the armature")
+    # bone_name: bpy.props.EnumProperty(name="", items=update_bone_list, description="Select a bone from the armature")
     rot_axis: bpy.props.EnumProperty(name="旋转轴", items=[("X", "X", ""), ("Y", "Y", ""), ("Z", "Z", "")], default="Z")
+    bone_name: bpy.props.StringProperty(name="Bone Name", default="")
 
 
 class ChainItem(bpy.types.PropertyGroup):
@@ -326,13 +459,14 @@ class UPDATE_ChainIK_OT_RoboIK(bpy.types.Operator):
             return {"FINISHED"}
         bone_has_none = False
         bone_has_repeat = False
+        bone_has_none2 = False
         for i in range(len(context.scene.roboik_properties.chain_item_collection)):
             if context.scene.roboik_properties.chain_item_collection[i].enabled:
                 bone_name_list = []
-                print(len(context.scene.roboik_properties.chain_item_collection[i].chain_bone_item_collection))
-                print(context.scene.roboik_properties.chain_item_collection[i].chain_bone_item_collection)
                 for j in range(len(context.scene.roboik_properties.chain_item_collection[i].chain_bone_item_collection)):
                     print(context.scene.roboik_properties.chain_item_collection[i].chain_bone_item_collection[j].bone_name)
+                    if context.scene.roboik_properties.chain_item_collection[i].chain_bone_item_collection[j].bone_name == "":
+                        bone_has_none2 = True
                     bone_name_list.append(context.scene.roboik_properties.chain_item_collection[i].chain_bone_item_collection[j].bone_name)
                 print(bone_name_list, i)
                 if len(bone_name_list) == 0:
@@ -343,6 +477,9 @@ class UPDATE_ChainIK_OT_RoboIK(bpy.types.Operator):
                     break
         if bone_has_none:
             self.report({"ERROR"}, "有链条为空,请选择骨骼")
+            return {"FINISHED"}
+        if bone_has_none2:
+            self.report({"ERROR"}, "有空骨骼,请选择骨骼")
             return {"FINISHED"}
         if bone_has_repeat:
             self.report({"ERROR"}, "有重复的骨骼")
@@ -510,7 +647,8 @@ class CHAIN_BONE_PT_SubPanel(bpy.types.Panel):
         collection = context.scene.roboik_properties.chain_item_collection
         bool1 = collection is not None and len(collection) > 0
         bool2 = True
-
+        if not bool1:
+            return bool1
         if collection[context.scene.roboik_properties.chain_item_collection_active_index].armature == None:
             bool2 = False
         # 控制显示条件，例如仅当有选中对象时显示
@@ -571,7 +709,19 @@ class CHAIN_BONE_UL_List(bpy.types.UIList):
         row2 = row.row(align=True)
         row2.prop(item, "name", text="", emboss=False)
         row2.prop(item, "rot_axis", text="旋转轴", emboss=True)
-        row2.prop_search(item, "bone_name", context.scene.roboik_properties.chain_item_collection[context.scene.roboik_properties.chain_item_collection_active_index].armature, "bones", text="", icon="BONE_DATA")
+        # row2.prop_search(item, "bone_name", context.scene.roboik_properties.chain_item_collection[context.scene.roboik_properties.chain_item_collection_active_index].armature, "bones", text="", icon="BONE_DATA")
+
+        chain_item_collection = context.scene.roboik_properties.chain_item_collection
+        collection_active_index = context.scene.roboik_properties.chain_item_collection_active_index
+        chain_item = chain_item_collection[collection_active_index]
+
+        # 确保 armature 有效
+        if chain_item and chain_item.armature:
+            # 使用 prop_search 显示 armature 中的骨骼列表
+            row2.prop_search(item, "bone_name", chain_item.armature, "bones", text="", icon="BONE_DATA")
+        else:
+            row2.label(text="No Armature Assigned", icon="ERROR")
+
         # row2.prop(item, "bone_name", text="", emboss=True, icon="BONE_DATA")
 
 
@@ -594,11 +744,12 @@ class AddChainBoneItem(bpy.types.Operator):
         active_index = context.scene.roboik_properties.chain_bone_item_collection_active_index
         if active_index > 0:
             armature = chain_collection[collection_active_index].armature
-            pre_bone = armature.bones[collection[active_index - 1].bone_name]
-            if pre_bone.children:
-                item.bone_name = pre_bone.children[0].name
-            else:
-                item.bone_name = pre_bone.name
+            if collection[active_index - 1].bone_name != "":
+                pre_bone = armature.bones[collection[active_index - 1].bone_name]
+                if pre_bone.children:
+                    item.bone_name = pre_bone.children[0].name
+                else:
+                    item.bone_name = pre_bone.name
         return {"FINISHED"}
 
 
@@ -694,6 +845,9 @@ OperatorList = [
     Remove_depsgraph_post_handler,
     Update_frame_change_pre_handler,
     Remove_frame_change_pre_handler,
+    InstallIKPYOperator,
+    UnInstallIKPYOperator,
+    OpenAddonPreferencesOperator,
 ]
 
 
@@ -703,6 +857,7 @@ PanelList = [
     CHAIN_BONE_PT_SubPanel,
     CHAIN_UL_List,
     CHAIN_BONE_UL_List,
+    RoboIKToolPrefs,
 ]
 propertyList = [
     ChainBoneItem,
